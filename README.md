@@ -2,6 +2,8 @@
 
 A small BetterDiscord plugin that adds a button to bring your current voice channel back into view in the server channel list, without switching away from the text channel you are reading.
 
+![VoiceChannelAnchor demo](assets/demo.gif)
+
 ## Why
 
 On large Discord servers, it is easy to lose track of the voice channel you are connected to while browsing text channels. Discord's native voice panel can jump you to the voice channel view, which also changes what is displayed in the main area.
@@ -15,6 +17,10 @@ VoiceChannelAnchor keeps your current text channel open and only scrolls the cha
 - Scrolls the server channel list to your active voice channel.
 - Handles large channel lists by scanning Discord's virtualized channel list.
 - Avoids Discord's native click behavior that switches the main view to the voice channel.
+
+## Download
+
+Download the latest version from the [GitHub Releases page](https://github.com/Rockyozen/VoiceChannelAnchorPluginBD/releases/latest).
 
 ## Installation
 
