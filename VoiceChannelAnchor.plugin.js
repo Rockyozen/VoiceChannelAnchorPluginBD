@@ -2,7 +2,7 @@
  * @name VoiceChannelAnchor
  * @author Rockyozen
  * @description Adds a button to anchor your current voice channel in the channel list without changing your active text channel.
- * @version 1.0.0
+ * @version 1.0.1
  * @website https://github.com/Rockyozen/VoiceChannelAnchorPluginBD
  * @source https://github.com/Rockyozen/VoiceChannelAnchorPluginBD/blob/main/VoiceChannelAnchor.plugin.js
  */
@@ -198,7 +198,15 @@ module.exports = class VoiceChannelAnchor {
         }
 
         this.scanState = null;
-        this.tryScrollToChannel(voiceChannel, 80);
+        const sidebarRoot = this.getGuildSidebarRoot(voiceGuildId);
+        const scroller = this.getChannelListScroller(sidebarRoot);
+
+        if (!sidebarRoot || !scroller) {
+            UI.showToast("Unable to locate Discord's channel list.", {type: "error"});
+            return;
+        }
+
+        this.tryScrollToChannel(voiceChannel, 28);
     }
 
     tryScrollToChannel(channel, remainingAttempts) {
@@ -235,7 +243,7 @@ module.exports = class VoiceChannelAnchor {
             this.pendingRetry = setTimeout(() => {
                 this.pendingRetry = null;
                 this.tryScrollToChannel(channel, remainingAttempts - 1);
-            }, 90);
+            }, 60);
             return;
         }
 
@@ -258,7 +266,7 @@ module.exports = class VoiceChannelAnchor {
         const guildId = channel.guild_id ?? channel.guildId;
         const channelId = channel.id;
         const channelName = String(channel.name ?? "").trim();
-        const sidebarRoot = this.getGuildSidebarRoot();
+        const sidebarRoot = this.getGuildSidebarRoot(guildId);
 
         if (!sidebarRoot) {
             return null;
@@ -278,7 +286,7 @@ module.exports = class VoiceChannelAnchor {
             }
         }
 
-        const candidates = sidebarRoot.querySelectorAll('[data-list-item-id*="channels___"], [role="treeitem"], [class*="containerDefault"], [class*="mainContent"]');
+        const candidates = sidebarRoot.querySelectorAll('[data-list-item-id*="channels___"], a[href^="/channels/"], [role="treeitem"], [aria-label]');
 
         for (const candidate of candidates) {
             const channelElement = this.normalizeChannelElement(candidate);
@@ -286,14 +294,7 @@ module.exports = class VoiceChannelAnchor {
                 continue;
             }
 
-            const listItemId = channelElement.getAttribute("data-list-item-id");
-            if (listItemId === `channels___${channelId}`) {
-                return channelElement;
-            }
-
-            const directMatch = channelElement.matches?.(`a[href="/channels/${guildId}/${channelId}"]`);
-            const nestedMatch = channelElement.querySelector?.(`a[href="/channels/${guildId}/${channelId}"]`);
-            if (directMatch || nestedMatch) {
+            if (this.elementMatchesChannel(channelElement, guildId, channelId)) {
                 return channelElement;
             }
         }
@@ -307,12 +308,28 @@ module.exports = class VoiceChannelAnchor {
     }
 
     normalizeChannelElement(element) {
-        return element.closest?.('[data-list-item-id^="channels___"]')
+        return element.closest?.('[data-list-item-id*="channels___"]')
             || element.closest?.('a[href^="/channels/"]')
             || element.closest?.('[role="treeitem"]')
-            || element.closest?.('[class*="containerDefault"]')
-            || element.closest?.('[class*="wrapper"]')
             || element;
+    }
+
+    elementMatchesChannel(element, guildId, channelId) {
+        const listItem = element.matches?.('[data-list-item-id*="channels___"]')
+            ? element
+            : element.querySelector?.('[data-list-item-id*="channels___"]');
+        const listItemId = listItem?.getAttribute?.("data-list-item-id") ?? "";
+
+        if (listItemId.includes(channelId)) {
+            return true;
+        }
+
+        const expectedHref = `/channels/${guildId}/${channelId}`;
+        const link = element.matches?.(`a[href="${expectedHref}"]`)
+            ? element
+            : element.querySelector?.(`a[href="${expectedHref}"]`);
+
+        return Boolean(link);
     }
 
     findChannelElementByName(sidebarRoot, channelName) {
@@ -323,8 +340,7 @@ module.exports = class VoiceChannelAnchor {
         const searchRoots = [
             ...sidebarRoot.querySelectorAll('[data-list-item-id*="channels___"]'),
             ...sidebarRoot.querySelectorAll('[role="treeitem"]'),
-            ...sidebarRoot.querySelectorAll('[class*="containerDefault"]'),
-            ...sidebarRoot.querySelectorAll('[class*="mainContent"]')
+            ...sidebarRoot.querySelectorAll('[aria-label]')
         ];
 
         for (const node of searchRoots) {
@@ -440,7 +456,7 @@ module.exports = class VoiceChannelAnchor {
 
     buildSearchPositions(scroller, orderedChannels, channelIndex) {
         const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        const step = Math.max(260, Math.floor(scroller.clientHeight * 0.9));
+        const step = Math.max(420, Math.floor(scroller.clientHeight * 1.35));
         const positions = [];
         const add = top => {
             const normalized = Math.max(0, Math.min(maxTop, Math.round(top)));
@@ -455,16 +471,19 @@ module.exports = class VoiceChannelAnchor {
         const nearBottom = currentTop > maxTop - (step * 0.75);
 
         if (nearBottom) {
-            this.addBottomFirstSearchPositions(positions, add, currentTop, step, maxTop);
-
             if (channelIndex >= 0) {
                 const visibleRows = this.getVisibleChannelRows(this.getGuildSidebarRoot());
                 const rowHeight = this.getEstimatedRowHeight(visibleRows);
                 const estimatedTop = (channelIndex * rowHeight) - (scroller.clientHeight * 0.22);
-                add(estimatedTop);
-                add(estimatedTop - Math.floor(step * 0.45));
-                add(estimatedTop + Math.floor(step * 0.45));
+
+                if (estimatedTop > maxTop * 0.55) {
+                    add(estimatedTop);
+                    add(estimatedTop - Math.floor(step * 0.35));
+                    add(estimatedTop + Math.floor(step * 0.35));
+                }
             }
+
+            this.addBottomFirstSearchPositions(positions, add, currentTop, step, maxTop);
 
             return positions;
         }
@@ -473,7 +492,7 @@ module.exports = class VoiceChannelAnchor {
             const visibleRows = this.getVisibleChannelRows(this.getGuildSidebarRoot());
             const rowHeight = this.getEstimatedRowHeight(visibleRows);
             const estimatedTop = (channelIndex * rowHeight) - (scroller.clientHeight * 0.22);
-            this.addFocusedSearchPositions(positions, add, currentTop, estimatedTop, step, maxTop);
+            this.addEstimatedSearchPositions(positions, add, currentTop, estimatedTop, step, maxTop);
             return positions;
         }
 
@@ -485,12 +504,40 @@ module.exports = class VoiceChannelAnchor {
 
     addBottomFirstSearchPositions(positions, add, currentTop, step, maxTop) {
         add(maxTop);
-        add(maxTop - Math.floor(step * 0.35));
-        add(maxTop - Math.floor(step * 0.7));
+        add(maxTop - Math.floor(step * 0.55));
         add(currentTop);
 
         for (let top = maxTop - step; top >= 0; top -= step) {
             add(top);
+        }
+    }
+
+    addEstimatedSearchPositions(positions, add, currentTop, estimatedTop, step, maxTop) {
+        const clampedTarget = Math.max(0, Math.min(maxTop, estimatedTop));
+        add(clampedTarget);
+        add(clampedTarget - Math.floor(step * 0.35));
+        add(clampedTarget + Math.floor(step * 0.35));
+        add(clampedTarget - step);
+        add(clampedTarget + step);
+
+        const direction = clampedTarget >= currentTop ? 1 : -1;
+        if (direction > 0) {
+            for (let top = clampedTarget + (step * 2); top <= maxTop; top += step) {
+                add(top);
+            }
+
+            for (let top = clampedTarget - (step * 2); top >= 0; top -= step) {
+                add(top);
+            }
+        }
+        else {
+            for (let top = clampedTarget - (step * 2); top >= 0; top -= step) {
+                add(top);
+            }
+
+            for (let top = clampedTarget + (step * 2); top <= maxTop; top += step) {
+                add(top);
+            }
         }
     }
 
@@ -584,7 +631,7 @@ module.exports = class VoiceChannelAnchor {
             return [];
         }
 
-        return [...sidebarRoot.querySelectorAll('[data-list-item-id*="channels___"], [role="treeitem"]')]
+        return [...sidebarRoot.querySelectorAll('[data-list-item-id*="channels___"], a[href^="/channels/"], [role="treeitem"]')]
             .filter(node => this.isInsideChannelList(node));
     }
 
@@ -600,28 +647,135 @@ module.exports = class VoiceChannelAnchor {
         return heights.reduce((sum, height) => sum + height, 0) / heights.length;
     }
 
-    getGuildSidebarRoot() {
-        const sidebarSelector = this.toClassSelector(sidebarClasses?.sidebar);
-        const sidebar = sidebarSelector ? document.querySelector(sidebarSelector) : null;
-        if (sidebar?.querySelector?.('[data-list-item-id*="channels___"]')) {
-            return sidebar;
+    getGuildSidebarRoot(guildId = SelectedGuildStore?.getGuildId?.()) {
+        const semanticRoot = this.getSemanticChannelListRoot(guildId);
+        if (semanticRoot) {
+            return semanticRoot;
         }
 
         const voicePanel = this.getVoicePanelElement();
+        const fromVoicePanel = this.getGuildSidebarRootFromVoicePanel(voicePanel);
+        if (fromVoicePanel) {
+            return fromVoicePanel;
+        }
+
+        const detectedRoot = this.getGuildSidebarRootByChannelLinks(guildId);
+        if (detectedRoot) {
+            return detectedRoot;
+        }
+
+        const sidebarSelector = this.toClassSelector(sidebarClasses?.sidebar);
+        const sidebar = sidebarSelector ? document.querySelector(sidebarSelector) : null;
+        if (sidebar?.querySelector?.('[data-list-item-id*="channels___"], a[href^="/channels/"]')) {
+            return sidebar;
+        }
+
+        const fallback = document.querySelector('[data-list-item-id*="channels___"], a[href^="/channels/"]')?.closest?.('[class*="sidebar"]')
+            || document.querySelector('[data-list-item-id*="channels___"], a[href^="/channels/"]')?.parentElement;
+
+        return fallback ?? null;
+    }
+
+    getSemanticChannelListRoot(guildId) {
+        const selectors = [
+            'nav[aria-label]',
+            '[aria-label*="Channels"]',
+            '[aria-label*="channels"]',
+            '[aria-label*="Salons"]',
+            '[aria-label*="salons"]',
+            '[data-list-id*="channels"]',
+            '[data-list-id*="guildsnav"]'
+        ];
+        const candidates = selectors.flatMap(selector => [...document.querySelectorAll(selector)]);
+
+        return candidates
+            .filter(candidate => this.looksLikeChannelListRoot(candidate, guildId))
+            .sort((a, b) => this.scoreChannelListRoot(b, guildId) - this.scoreChannelListRoot(a, guildId))[0] ?? null;
+    }
+
+    looksLikeChannelListRoot(element, guildId) {
+        const rect = element?.getBoundingClientRect?.();
+        if (!rect || this.isInServerRail(element)) {
+            return false;
+        }
+
+        if (rect.width < 160 || rect.width > 520 || rect.height < 220 || rect.left > 520) {
+            return false;
+        }
+
+        return this.scoreChannelListRoot(element, guildId) > 0;
+    }
+
+    scoreChannelListRoot(element, guildId) {
+        const channelSelector = guildId
+            ? `[data-list-item-id*="channels___"], a[href^="/channels/${guildId}/"]`
+            : '[data-list-item-id*="channels___"], a[href^="/channels/"]';
+        const channelCount = element.querySelectorAll(channelSelector).length;
+        const serverCount = element.querySelectorAll('[data-list-item-id*="guildsnav"], [aria-label*="server"], [aria-label*="Server"]').length;
+
+        return channelCount - serverCount;
+    }
+
+    getGuildSidebarRootFromVoicePanel(voicePanel) {
         let current = voicePanel?.parentElement ?? null;
 
-        while (current) {
-            if (current.querySelector?.('[data-list-item-id*="channels___"]')) {
+        while (current && current !== document.body) {
+            if (current.querySelector?.('[data-list-item-id*="channels___"], a[href^="/channels/"]')) {
                 return current;
             }
 
             current = current.parentElement;
         }
 
-        const fallback = document.querySelector('[data-list-item-id*="channels___"]')?.closest?.('[class*="sidebar"]')
-            || document.querySelector('[data-list-item-id*="channels___"]')?.parentElement;
+        return null;
+    }
 
-        return fallback ?? null;
+    getGuildSidebarRootByChannelLinks(guildId) {
+        if (!guildId) {
+            return null;
+        }
+
+        const voicePanel = this.getVoicePanelElement();
+        const buttonHost = document.getElementById(this.hostId);
+        const channelNodes = [...document.querySelectorAll(`[data-list-item-id*="channels___"], a[href^="/channels/${guildId}/"]`)]
+            .filter(node => {
+                const rect = node.getBoundingClientRect?.();
+                return rect
+                  && !this.isInServerRail(node)
+                    && rect.right < 520
+                    && !voicePanel?.contains(node)
+                    && !buttonHost?.contains(node);
+            });
+        const roots = new Map();
+
+        for (const node of channelNodes) {
+            let current = node;
+
+            while (current && current !== document.body) {
+                const rect = current.getBoundingClientRect?.();
+                if (rect && !this.isInServerRail(current) && rect.width >= 160 && rect.width <= 520 && rect.height >= 260) {
+                    const count = current.querySelectorAll(`[data-list-item-id*="channels___"], a[href^="/channels/${guildId}/"]`).length;
+                    const currentScore = roots.get(current) ?? 0;
+                    roots.set(current, Math.max(currentScore, count));
+                }
+
+                current = current.parentElement;
+            }
+        }
+
+        return [...roots.entries()]
+            .filter(([, count]) => count >= 2)
+            .sort(([rootA, countA], [rootB, countB]) => {
+                if (countA !== countB) {
+                    return countB - countA;
+                }
+
+                const areaA = rootA.getBoundingClientRect().width * rootA.getBoundingClientRect().height;
+                const areaB = rootB.getBoundingClientRect().width * rootB.getBoundingClientRect().height;
+                return areaA - areaB;
+            })
+            .map(([root]) => root)
+            .find(root => root.querySelector?.(`[data-list-item-id*="channels___"], a[href^="/channels/${guildId}/"]`)) ?? null;
     }
 
     getChannelScroller(target, sidebarRoot) {
@@ -666,13 +820,13 @@ module.exports = class VoiceChannelAnchor {
         ].filter(Boolean);
 
         const candidates = [
-            ...sidebarRoot.querySelectorAll('[data-list-id*="channels"], [role="tree"]'),
+            ...sidebarRoot.querySelectorAll('[data-list-id*="channels"], [role="tree"], nav[aria-label], [aria-label*="Channels"], [aria-label*="channels"], [aria-label*="Salons"], [aria-label*="salons"]'),
             ...classSelectors.flatMap(selector => [...sidebarRoot.querySelectorAll(selector)]),
             sidebarRoot
         ];
 
         for (const candidate of candidates) {
-            if (this.isScrollable(candidate) && candidate.querySelector?.('[data-list-item-id*="channels___"], [role="treeitem"]')) {
+            if (!this.isInServerRail(candidate) && this.isScrollable(candidate) && candidate.querySelector?.('[data-list-item-id*="channels___"], a[href^="/channels/"], [role="treeitem"]')) {
                 return candidate;
             }
         }
@@ -685,19 +839,8 @@ module.exports = class VoiceChannelAnchor {
             return [];
         }
 
-        const scrollers = new Set();
         const primary = this.getChannelListScroller(sidebarRoot);
-        if (primary) {
-            scrollers.add(primary);
-        }
-
-        for (const node of [sidebarRoot, ...sidebarRoot.querySelectorAll("*")]) {
-            if (this.isScrollable(node) && node.querySelector?.('[data-list-item-id*="channels___"], [role="treeitem"]')) {
-                scrollers.add(node);
-            }
-        }
-
-        return [...scrollers];
+        return primary ? [primary] : [];
     }
 
     isInsideChannelList(element) {
@@ -738,6 +881,15 @@ module.exports = class VoiceChannelAnchor {
         const style = window.getComputedStyle(element);
         const overflowY = style.overflowY;
         return (overflowY === "auto" || overflowY === "scroll") && element.scrollHeight > element.clientHeight;
+    }
+
+    isInServerRail(element) {
+        const rect = element?.getBoundingClientRect?.();
+        if (!rect) {
+            return true;
+        }
+
+        return rect.right <= 110 || rect.width < 80;
     }
 
     setScrollTopInstant(element, top) {
