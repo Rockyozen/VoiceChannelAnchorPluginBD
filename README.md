@@ -2,7 +2,7 @@
 
 A small BetterDiscord plugin that adds a button to bring your current voice channel back into view in the server channel list, without switching away from the text channel you are reading.
 
-![VoiceChannelAnchor demo](.assets/demo.gif)
+![VoiceChannelAnchor demo](assets/VoiceChannelAnchorDemo.gif)
 
 ## Why
 
